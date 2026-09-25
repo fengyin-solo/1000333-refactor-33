@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.contractor_policy import qualification_expiry
 from app.store import store
 
 MODULE = "contractor"
@@ -46,6 +47,16 @@ class ContractorService:
         rows.append(entry)
         return entry, []
 
+    def _qualification_expiry(
+        self, entry: dict[str, Any], action: str
+    ) -> tuple[bool, list[str]]:
+        """审核承包商、暂停合作、终止合作三个入口共用的资质到期口径。
+
+        只做统一核验、不在各入口内重复实现；当前保持各入口既有行为：核验结果
+        不阻断状态流转。日后若要统一拦截或提示，只需调整本方法一处。
+        """
+        return qualification_expiry(entry)
+
     def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
         entry = store.find(MODULE, entry_id)
         if entry is None:
@@ -55,6 +66,7 @@ class ContractorService:
         target = ACTION_RULES[action]
         if target not in STATUS_ORDER:
             return None, f"目标状态「{target}」不在允许的状态序列里"
+        self._qualification_expiry(entry, action)
         entry["status"] = target
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
