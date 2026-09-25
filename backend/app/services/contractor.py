@@ -1,6 +1,7 @@
 """运维承包商业务规则：状态流转、字段校验与筛选口径都收在这里。"""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from app.store import store
@@ -10,6 +11,23 @@ REQUIRED_FIELDS = ["承包商编码", "承包商名称", "资质等级"]
 STATUS_ORDER = ["待审核", "合作中", "已暂停", "已终止"]
 ACTION_RULES = {"审核承包商": "合作中", "暂停合作": "已暂停", "终止合作": "已终止"}
 NEGATIVE_ACTIONS = []
+
+
+def qualification_expired(entry: dict[str, Any], *, today: date | None = None) -> bool:
+    """资质到期统一口径：审核承包商、暂停合作、终止合作都走这一份判断。
+
+    以合同到期日为准：可识别的到期日（YYYY-MM-DD）当天及以前视为已到期；
+    合同到期日缺失或不是可识别日期（如示例占位文本）时按未到期处理，
+    不误伤在途档案。后续调整口径（例如上线新资质等级）只改这里一处。
+    """
+    raw = str(entry.get("合同到期日") or "").strip()
+    if not raw:
+        return False
+    try:
+        due = date.fromisoformat(raw)
+    except ValueError:
+        return False
+    return due <= (today or date.today())
 
 
 class ContractorService:
@@ -58,4 +76,7 @@ class ContractorService:
         entry["status"] = target
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
-        return entry, f"承包商档案已{action}"
+        message = f"承包商档案已{action}"
+        if qualification_expired(entry):
+            message += "；资质已到期，请尽快复核合同到期日"
+        return entry, message
